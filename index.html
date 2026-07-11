@@ -66,21 +66,21 @@
 
     <section class="proof-section" id="proof">
       <div class="proof-copy"><span class="section-kicker">02 / PROOF</span><h2>Every answer leaves a receipt.</h2><p>Source freshness, payment status and network confirmation stay visible. Trust is part of the interface, not a footnote.</p></div>
-      <div class="proof-visual native-proof"><div class="trust-score"><span>PROTOCOL CHECK</span><strong>6<small>/6</small></strong><div><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><p>Challenge valid · CCTP mapped · Tests passing</p></div><div class="chain-health"><span>INJECTIVE EVM TESTNET</span><b><i></i> Operational</b><dl><div><dt>Chain ID</dt><dd>1439</dd></div><div><dt>Settlement</dt><dd>USDC</dd></div><div><dt>Protocol</dt><dd>x402 v2</dd></div></dl></div><div class="receipt"><span>PAYMENT SETUP</span><strong>PENDING</strong><p>0.01 USDC · Testnet</p><code>recipient wallet required</code></div></div>
+      <div class="proof-visual native-proof"><div class="trust-score"><span>PROTOCOL CHECK</span><strong>6<small>/6</small></strong><div><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><p>Live data &middot; CCTP mapped &middot; Tests passing</p></div><div class="chain-health"><span>INJECTIVE EVM TESTNET</span><b><i></i> Operational</b><dl><div><dt>Chain ID</dt><dd>1439</dd></div><div><dt>Settlement</dt><dd>USDC</dd></div><div><dt>Protocol</dt><dd>x402 v2</dd></div></dl></div><div class="receipt"><span>PAYMENT RAIL</span><strong>READY</strong><p>0.01 USDC &middot; Testnet</p><code>awaiting first receipt</code></div></div>
     </section>
 
     <section class="developer-section" id="developers">
       <header><span class="section-kicker">03 / BUILD</span><h2>Football intelligence for software.</h2><p>Give agents and apps the same paid insight layer through a predictable HTTP flow.</p></header>
       <div class="developer-grid">
-        <div class="code-window"><div><i></i><i></i><i></i><span>request.sh</span></div><pre><code>curl https://api.goalgate.ai/v1/edge \
-  -H "X-Match: fra-arg" \
-  -H "PAYMENT-SIGNATURE: $X402_PROOF"
+        <div class="code-window"><div><i></i><i></i><i></i><span>request.sh</span></div><pre><code>curl https://goal-gate-beta.vercel.app/api/v1/insights \
+  -H "Content-Type: application/json" \
+  -d '{"matchId":"MATCH_ID_FROM_FEED","question":"Where is the next opening?"}'
 
 {
-  "edge": 0.68,
-  "price": "0.10 USDC",
-  "network": "injective",
-  "status": "verified"
+  "status": 402,
+  "amount": "0.01 USDC",
+  "network": "eip155:1439",
+  "asset": "native USDC"
 }</code></pre></div>
         <div class="developer-points"><article><span>402</span><div><h3>Native payment handshake</h3><p>Your client receives a price, pays, and retries with proof.</p></div></article><article><span>INJ</span><div><h3>Injective settlement</h3><p>Fast USDC receipts with clear transaction references.</p></div></article><article><span>API</span><div><h3>Agent-shaped responses</h3><p>Structured output built to move directly into workflows.</p></div></article></div>
       </div><a class="docs-link" href="./docs.html">Explore API documentation <span>→</span></a>
