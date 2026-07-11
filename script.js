@@ -140,7 +140,8 @@ async function loadWorkspace() {
   try {
     const response = await fetch('/api/v1/matches');
     if (!response.ok) throw new Error('Match feed unavailable');
-    const { data } = await response.json();
+    const { data, source } = await response.json();
+    if (source?.fallback) notify('Live provider is unavailable. Showing the verified World Cup schedule fallback.', 'info');
     matchList.innerHTML = '';
     data.forEach((match) => {
       const button = document.createElement('button');

@@ -23,9 +23,9 @@ GoalGate makes premium football analysis purchasable one request at a time. A ca
 
 ## Current status, honestly
 
-The website and API are publicly deployed. The fixture feed is currently seeded demo data, not yet connected to a licensed live World Cup data provider. Development mode supports a clearly labeled `demo` receipt so the interface can be exercised without funds.
+The website and API are publicly deployed. The fixture feed now reads current FIFA World Cup 2026 scoreboard data from ESPN's public scoreboard endpoint, caches it for 15 seconds, and exposes provider/freshness metadata. A verified schedule fallback is clearly marked with `source.fallback: true` whenever the upstream feed is unavailable. Development mode supports a clearly labeled `demo` receipt so the interface can be exercised without funds.
 
-Production never accepts a demo payment. It fails closed with HTTP `503` until a valid recipient wallet and either a remote or embedded facilitator are configured. A transaction is only described as onchain when the facilitator returns a successful settlement and transaction hash.
+Production never accepts a demo payment. The recipient and embedded facilitator are configured on Vercel, x402 discovery is live, and the facilitator gas wallet is funded on testnet. A transaction is only described as onchain when the facilitator returns a successful settlement and transaction hash. The project still needs one payer-funded end-to-end settlement recorded for the final demo.
 
 Injective's official x402 package supports testnet, but Injective's public launch announcement currently guarantees its hosted facilitator on mainnet. The hostname referenced by the package notes, `x402.injective.network`, did not resolve when verified on July 11, 2026. GoalGate therefore does not ship that dead URL as a default. For testnet, use the official package's embedded facilitator as described below, or set `X402_FACILITATOR_URL` only after verifying a compatible service.
 
@@ -145,8 +145,14 @@ Run `npm run mcp` to start the stdio MCP server. It exposes fixture discovery, p
 
 ## Production roadmap
 
-- Connect a licensed World Cup fixture, event, lineup, and statistics provider.
+- Migrate the public scoreboard adapter to a licensed production data contract with lineups and event-level guarantees.
 - Complete and test one real Injective testnet settlement with a public explorer receipt.
 - Add a wallet-executed Circle CCTP funding flow.
 - Add durable rate limiting, request analytics, replay monitoring, and facilitator health alerts.
 - Move the facilitator key to managed KMS before any mainnet release.
+
+## Submission materials
+
+- `submission/DEMO_SCRIPT.md`: timed video narration, shots, integration proof, and recording checklist.
+- `submission/X_POST.md`: 100+ word launch post with required tags and suggested media.
+- `submission/JUDGING_CHECKLIST.md`: criterion-by-criterion audit and remaining submission gates.

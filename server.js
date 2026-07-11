@@ -4,6 +4,7 @@ import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { CCTP, INJECTIVE, paymentConfiguration, paymentRequirement, verifyAndSettle } from './lib/injective.js';
+import { buildMatchInsight, getWorldCupMatches } from './lib/world-cup.js';
 
 const root = fileURLToPath(new URL('.', import.meta.url));
 const port = Number(process.env.PORT || 4173);
@@ -20,12 +21,6 @@ function validateProductionConfig() {
   if (!process.env.X402_FACILITATOR_URL && !process.env.X402_FACILITATOR_PRIVATE_KEY) missing.push('X402_FACILITATOR_URL or X402_FACILITATOR_PRIVATE_KEY');
   if (missing.length) throw new Error(`Missing production configuration: ${missing.join(', ')}`);
 }
-
-const matches = [
-  { id: 'fra-arg', home: 'France', away: 'Argentina', homeCode: 'FRA', awayCode: 'ARG', score: '2 : 1', minute: 72, status: 'live' },
-  { id: 'eng-bra', home: 'England', away: 'Brazil', homeCode: 'ENG', awayCode: 'BRA', score: '0 : 0', minute: 38, status: 'live' },
-  { id: 'esp-ger', home: 'Spain', away: 'Germany', homeCode: 'ESP', awayCode: 'GER', score: '18:00', minute: null, status: 'upcoming' }
-];
 
 const mime = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.json': 'application/json; charset=utf-8' };
 const encode = (value) => Buffer.from(JSON.stringify(value)).toString('base64');
@@ -67,15 +62,6 @@ async function readJson(req) {
   catch { throw new Error('INVALID_JSON'); }
 }
 
-function buildInsight(match, question) {
-  const insights = {
-    'fra-arg': { edge: 0.68, summary: "France is creating a right-channel overload. Watch the next transition after Argentina's left-back advances.", signal: 'attacking-overload' },
-    'eng-bra': { edge: 0.61, summary: 'England is finding space behind the first press. The next high-value opening is likely through a third-man run.', signal: 'press-break' },
-    'esp-ger': { edge: 0.57, summary: 'Spain projects a possession edge, while Germany carries the stronger transition threat.', signal: 'pre-match-balance' }
-  };
-  return { id: randomUUID(), matchId: match.id, question, ...insights[match.id], confidence: 0.87, sources: ['live-events', 'lineups', 'momentum-model'], generatedAt: new Date().toISOString() };
-}
-
 async function networkStatus() {
   try {
     const response = await fetch(rpcUrl, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_blockNumber', params: [] }), signal: AbortSignal.timeout(3500) });
@@ -99,7 +85,7 @@ const openapi = {
 async function api(req, res, url) {
   if (req.method === 'GET' && url.pathname === '/api/health') return send(res, 200, { status: 'ok', service: 'goalgate', version: '1.0.0', payments: paymentConfiguration(), timestamp: new Date().toISOString() });
   if (req.method === 'GET' && url.pathname === '/api/v1/network') return send(res, 200, await networkStatus());
-  if (req.method === 'GET' && url.pathname === '/api/v1/matches') return send(res, 200, { data: matches, freshness: new Date().toISOString() }, { 'Cache-Control': 'public, max-age=15' });
+  if (req.method === 'GET' && url.pathname === '/api/v1/matches') return send(res, 200, await getWorldCupMatches(), { 'Cache-Control': 'public, max-age=15, stale-while-revalidate=30' });
   if (req.method === 'GET' && url.pathname === '/api/v1/funding/cctp') return send(res, 200, { ...CCTP, usdcContract: INJECTIVE.usdc, note: 'Clients complete the CCTP transfer with a connected wallet. GoalGate does not simulate, custody, or claim a transfer.' });
   if (req.method === 'GET' && url.pathname === '/api/openapi.json') return send(res, 200, openapi);
   if (req.method === 'GET' && url.pathname === '/.well-known/x402.json') {
@@ -108,7 +94,8 @@ async function api(req, res, url) {
   }
   if (req.method === 'POST' && url.pathname === '/api/v1/insights') {
     const body = await readJson(req);
-    const match = matches.find((item) => item.id === body.matchId);
+    const matchFeed = await getWorldCupMatches();
+    const match = matchFeed.data.find((item) => item.id === body.matchId);
     const question = typeof body.question === 'string' ? body.question.trim() : '';
     if (!match || question.length < 8 || question.length > 240) return send(res, 400, { error: 'Provide a valid matchId and a question between 8 and 240 characters.' });
     const config = paymentConfiguration();
@@ -118,7 +105,7 @@ async function api(req, res, url) {
     if (!signature) return send(res, 402, { error: 'Payment required', ...requirement }, { 'PAYMENT-REQUIRED': encode(requirement), 'Access-Control-Expose-Headers': 'PAYMENT-REQUIRED, PAYMENT-RESPONSE' });
     const settlement = await verifyAndSettle(signature, requirement, { demo: demoPayments });
     if (!settlement.success) return send(res, 402, { error: settlement.error }, { 'PAYMENT-REQUIRED': encode(requirement) });
-    const response = { data: buildInsight(match, question), payment: { amount: '0.01 USDC', network: INJECTIVE.name, transaction: settlement.transaction, explorerUrl: settlement.demo ? null : `${INJECTIVE.explorerUrl}/tx/${settlement.transaction}`, demo: Boolean(settlement.demo) } };
+    const response = { data: buildMatchInsight(match, question), payment: { amount: '0.01 USDC', network: INJECTIVE.name, transaction: settlement.transaction, explorerUrl: settlement.demo ? null : `${INJECTIVE.explorerUrl}/tx/${settlement.transaction}`, demo: Boolean(settlement.demo) } };
     return send(res, 200, response, { 'PAYMENT-RESPONSE': encode(settlement), 'Access-Control-Expose-Headers': 'PAYMENT-REQUIRED, PAYMENT-RESPONSE' });
   }
   return send(res, 404, { error: 'API route not found.' });
