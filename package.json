@@ -1,0 +1,14 @@
+{
+  "name": "goalgate",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Production-ready x402 football intelligence service for Injective",
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "mcp": "node mcp-server.js",
+    "test": "node --test"
+  }
+}

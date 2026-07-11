@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-labelledby="title">
+  <title id="title">GoalGate</title>
+  <rect x="2" y="2" width="44" height="44" rx="10" fill="#111211"/>
+  <path d="M12 34V14h24v20" fill="none" stroke="#fff" stroke-width="3"/>
+  <path d="M19 34V21h10v13" fill="none" stroke="#f04a16" stroke-width="3"/>
+  <circle cx="24" cy="28" r="2.5" fill="#fff"/>
+  <path d="M12 19h24M16 14v20M32 14v20" fill="none" stroke="#fff" stroke-opacity=".24" stroke-width="1"/>
+</svg>
