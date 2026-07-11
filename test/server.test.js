@@ -8,10 +8,22 @@ test.after(() => server.close());
 
 test('health endpoint responds', async () => { const response = await fetch(`${base}/api/health`); assert.equal(response.status, 200); assert.equal((await response.json()).status, 'ok'); });
 test('match feed is free', async () => { const response = await fetch(`${base}/api/v1/matches`); const body = await response.json(); assert.equal(response.status, 200); assert.ok(body.data.length >= 3); });
-test('CCTP funding endpoint identifies Injective domain 29', async () => { const response = await fetch(`${base}/api/v1/funding/cctp`); const body = await response.json(); assert.equal(response.status, 200); assert.equal(body.destinationDomain, 29); });
+test('CCTP funding endpoint returns official Injective testnet configuration', async () => {
+  const response = await fetch(`${base}/api/v1/funding/cctp`);
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(body.destinationDomain, 29);
+  assert.equal(body.usdcContract, '0x0C382e685bbeeFE5d3d9C29e29E341fEE8E84C5d');
+  assert.equal(body.tokenMessenger, '0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA');
+});
 test('premium insight returns an x402 challenge', async () => {
   const response = await fetch(`${base}/api/v1/insights`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ matchId: 'fra-arg', question: 'Where is the next opening?' }) });
-  assert.equal(response.status, 402); assert.ok(response.headers.get('payment-required'));
+  const body = await response.json();
+  assert.equal(response.status, 402);
+  assert.ok(response.headers.get('payment-required'));
+  assert.equal(body.accepts[0].network, 'eip155:1439');
+  assert.equal(body.accepts[0].asset, '0x0C382e685bbeeFE5d3d9C29e29E341fEE8E84C5d');
+  assert.equal(body.accepts[0].extra.assetTransferMethod, 'eip3009');
 });
 test('development payment unlocks an insight and returns a receipt', async () => {
   const response = await fetch(`${base}/api/v1/insights`, { method: 'POST', headers: { 'content-type': 'application/json', 'PAYMENT-SIGNATURE': 'demo' }, body: JSON.stringify({ matchId: 'fra-arg', question: 'Where is the next opening?' }) });

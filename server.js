@@ -3,19 +3,21 @@ import { readFile, stat } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
+import { CCTP, INJECTIVE, paymentConfiguration, paymentRequirement, verifyAndSettle } from './lib/injective.js';
 
 const root = fileURLToPath(new URL('.', import.meta.url));
 const port = Number(process.env.PORT || 4173);
 const production = process.env.NODE_ENV === 'production';
 const origin = process.env.PUBLIC_ORIGIN || `http://localhost:${port}`;
-const rpcUrl = process.env.INJECTIVE_RPC_URL || 'https://sentry.evm-rpc.injective.network/';
+const rpcUrl = process.env.INJECTIVE_RPC_URL || INJECTIVE.rpcUrl;
 const demoPayments = !production && process.env.GOALGATE_DEMO_PAYMENTS !== 'false';
 const rateBuckets = new Map();
 
 function validateProductionConfig() {
   if (!production) return;
-  const required = ['PUBLIC_ORIGIN', 'X402_PAY_TO', 'X402_USDC_ASSET', 'X402_FACILITATOR_URL'];
+  const required = ['PUBLIC_ORIGIN', 'X402_PAY_TO', 'X402_USDC_ASSET'];
   const missing = required.filter((name) => !process.env[name]);
+  if (!process.env.X402_FACILITATOR_URL && !process.env.X402_FACILITATOR_PRIVATE_KEY) missing.push('X402_FACILITATOR_URL or X402_FACILITATOR_PRIVATE_KEY');
   if (missing.length) throw new Error(`Missing production configuration: ${missing.join(', ')}`);
 }
 
@@ -38,7 +40,7 @@ function securityHeaders(res, requestId) {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
-  res.setHeader('Content-Security-Policy', "default-src 'self'; img-src 'self' data:; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self'; connect-src 'self' https://sentry.evm-rpc.injective.network");
+  res.setHeader('Content-Security-Policy', "default-src 'self'; img-src 'self' data:; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self'; connect-src 'self' https://k8s.testnet.json-rpc.injective.network");
   if (production) res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
 }
 
@@ -65,27 +67,6 @@ async function readJson(req) {
   catch { throw new Error('INVALID_JSON'); }
 }
 
-function paymentRequirement() {
-  return {
-    x402Version: 2,
-    resource: { url: `${origin}/api/v1/insights`, description: 'GoalGate premium match intelligence', mimeType: 'application/json' },
-    accepts: [{ scheme: 'exact', network: process.env.X402_NETWORK || 'eip155:1776', amount: '10000', asset: process.env.X402_USDC_ASSET || 'USDC', payTo: process.env.X402_PAY_TO || 'CONFIGURE_X402_PAY_TO', maxTimeoutSeconds: 90 }]
-  };
-}
-
-async function verifyAndSettle(signature, requirement) {
-  if (demoPayments && signature === 'demo') return { success: true, transaction: `demo_${randomUUID()}`, network: requirement.accepts[0].network, demo: true };
-  const facilitator = process.env.X402_FACILITATOR_URL;
-  if (!facilitator) return { success: false, error: 'Payment facilitator is not configured.' };
-  const payload = { paymentPayload: signature, paymentRequirements: requirement.accepts[0] };
-  const verify = await fetch(`${facilitator.replace(/\/$/, '')}/verify`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload), signal: AbortSignal.timeout(8000) });
-  const verification = await verify.json();
-  if (!verify.ok || !verification.isValid) return { success: false, error: verification.invalidReason || 'Payment verification failed.' };
-  const settle = await fetch(`${facilitator.replace(/\/$/, '')}/settle`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload), signal: AbortSignal.timeout(12000) });
-  const settlement = await settle.json();
-  return settle.ok && settlement.success ? settlement : { success: false, error: settlement.errorReason || 'Payment settlement failed.' };
-}
-
 function buildInsight(match, question) {
   const insights = {
     'fra-arg': { edge: 0.68, summary: "France is creating a right-channel overload. Watch the next transition after Argentina's left-back advances.", signal: 'attacking-overload' },
@@ -100,8 +81,8 @@ async function networkStatus() {
     const response = await fetch(rpcUrl, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_blockNumber', params: [] }), signal: AbortSignal.timeout(3500) });
     const data = await response.json();
     if (!response.ok || !data.result) throw new Error('RPC unavailable');
-    return { status: 'operational', chainId: 1776, blockNumber: Number.parseInt(data.result, 16), rpc: 'connected' };
-  } catch { return { status: 'degraded', chainId: 1776, blockNumber: null, rpc: 'unavailable' }; }
+    return { status: 'operational', network: INJECTIVE.name, chainId: INJECTIVE.chainId, blockNumber: Number.parseInt(data.result, 16), rpc: 'connected', explorer: INJECTIVE.explorerUrl };
+  } catch { return { status: 'degraded', network: INJECTIVE.name, chainId: INJECTIVE.chainId, blockNumber: null, rpc: 'unavailable', explorer: INJECTIVE.explorerUrl }; }
 }
 
 const openapi = {
@@ -116,23 +97,28 @@ const openapi = {
 };
 
 async function api(req, res, url) {
-  if (req.method === 'GET' && url.pathname === '/api/health') return send(res, 200, { status: 'ok', service: 'goalgate', version: '1.0.0', timestamp: new Date().toISOString() });
+  if (req.method === 'GET' && url.pathname === '/api/health') return send(res, 200, { status: 'ok', service: 'goalgate', version: '1.0.0', payments: paymentConfiguration(), timestamp: new Date().toISOString() });
   if (req.method === 'GET' && url.pathname === '/api/v1/network') return send(res, 200, await networkStatus());
   if (req.method === 'GET' && url.pathname === '/api/v1/matches') return send(res, 200, { data: matches, freshness: new Date().toISOString() }, { 'Cache-Control': 'public, max-age=15' });
-  if (req.method === 'GET' && url.pathname === '/api/v1/funding/cctp') return send(res, 200, { protocol: 'CCTP', destination: 'Injective', destinationDomain: 29, asset: 'USDC', transferModel: 'burn-attest-mint', tutorial: 'https://docs.injective.network/developers-defi/usdc-cctp-tutorial', note: 'Clients must complete the CCTP transaction with a connected wallet; this endpoint never claims or simulates a transfer.' });
+  if (req.method === 'GET' && url.pathname === '/api/v1/funding/cctp') return send(res, 200, { ...CCTP, usdcContract: INJECTIVE.usdc, note: 'Clients complete the CCTP transfer with a connected wallet. GoalGate does not simulate, custody, or claim a transfer.' });
   if (req.method === 'GET' && url.pathname === '/api/openapi.json') return send(res, 200, openapi);
-  if (req.method === 'GET' && url.pathname === '/.well-known/x402.json') return send(res, 200, { version: 2, resources: [paymentRequirement()] });
+  if (req.method === 'GET' && url.pathname === '/.well-known/x402.json') {
+    const config = paymentConfiguration();
+    return send(res, 200, { version: 2, ready: config.recipientConfigured && config.facilitatorConfigured, facilitatorMode: config.mode, resources: config.recipientConfigured ? [paymentRequirement(origin)] : [] });
+  }
   if (req.method === 'POST' && url.pathname === '/api/v1/insights') {
     const body = await readJson(req);
     const match = matches.find((item) => item.id === body.matchId);
     const question = typeof body.question === 'string' ? body.question.trim() : '';
     if (!match || question.length < 8 || question.length > 240) return send(res, 400, { error: 'Provide a valid matchId and a question between 8 and 240 characters.' });
-    const requirement = paymentRequirement();
+    const config = paymentConfiguration();
+    if (production && (!config.recipientConfigured || !config.facilitatorConfigured)) return send(res, 503, { error: 'Onchain payments are not configured yet.', missing: { recipient: !config.recipientConfigured, facilitator: !config.facilitatorConfigured } });
+    const requirement = paymentRequirement(origin, { allowDemoRecipient: demoPayments });
     const signature = req.headers['payment-signature'];
     if (!signature) return send(res, 402, { error: 'Payment required', ...requirement }, { 'PAYMENT-REQUIRED': encode(requirement), 'Access-Control-Expose-Headers': 'PAYMENT-REQUIRED, PAYMENT-RESPONSE' });
-    const settlement = await verifyAndSettle(signature, requirement);
+    const settlement = await verifyAndSettle(signature, requirement, { demo: demoPayments });
     if (!settlement.success) return send(res, 402, { error: settlement.error }, { 'PAYMENT-REQUIRED': encode(requirement) });
-    const response = { data: buildInsight(match, question), payment: { amount: '0.01 USDC', network: 'Injective EVM', transaction: settlement.transaction, demo: Boolean(settlement.demo) } };
+    const response = { data: buildInsight(match, question), payment: { amount: '0.01 USDC', network: INJECTIVE.name, transaction: settlement.transaction, explorerUrl: settlement.demo ? null : `${INJECTIVE.explorerUrl}/tx/${settlement.transaction}`, demo: Boolean(settlement.demo) } };
     return send(res, 200, response, { 'PAYMENT-RESPONSE': encode(settlement), 'Access-Control-Expose-Headers': 'PAYMENT-REQUIRED, PAYMENT-RESPONSE' });
   }
   return send(res, 404, { error: 'API route not found.' });
