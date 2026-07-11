@@ -146,7 +146,6 @@ Run `npm run mcp` to start the stdio MCP server. It exposes fixture discovery, p
 ## Production roadmap
 
 - Connect a licensed World Cup fixture, event, lineup, and statistics provider.
-- Add wallet-native x402 signing in the web app.
 - Complete and test one real Injective testnet settlement with a public explorer receipt.
 - Add a wallet-executed Circle CCTP funding flow.
 - Add durable rate limiting, request analytics, replay monitoring, and facilitator health alerts.

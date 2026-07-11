@@ -49,6 +49,83 @@ const insightOutput = document.querySelector('[data-insight-output]');
 const approveButton = document.querySelector('[data-approve-payment]');
 let selectedMatch = null;
 let pendingRequest = null;
+const INJECTIVE_TESTNET_CHAIN_ID = '0x59f';
+const INJECTIVE_TESTNET_USDC = '0x0c382e685bbeefe5d3d9c29e29e341fee8e84c5d';
+
+const encodeBase64Json = (value) => window.btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(value))));
+const escapeHtml = (value) => String(value).replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[character]);
+
+async function connectInjectiveWallet() {
+  if (!window.ethereum) throw new Error('Install MetaMask or Rabby to authorize the USDC payment.');
+  try {
+    await window.ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: INJECTIVE_TESTNET_CHAIN_ID }] });
+  } catch (error) {
+    if (error.code !== 4902) throw error;
+    await window.ethereum.request({
+      method: 'wallet_addEthereumChain',
+      params: [{
+        chainId: INJECTIVE_TESTNET_CHAIN_ID,
+        chainName: 'Injective EVM Testnet',
+        nativeCurrency: { name: 'Injective', symbol: 'INJ', decimals: 18 },
+        rpcUrls: ['https://k8s.testnet.json-rpc.injective.network/'],
+        blockExplorerUrls: ['https://testnet.blockscout.injective.network']
+      }]
+    });
+  }
+  const [account] = await window.ethereum.request({ method: 'eth_requestAccounts' });
+  if (!account) throw new Error('No wallet account was selected.');
+  const walletStatus = document.querySelector('[data-wallet-status]');
+  if (walletStatus) walletStatus.textContent = `${account.slice(0, 6)}...${account.slice(-4)}`;
+  return account;
+}
+
+async function createPaymentSignature(challenge) {
+  const accepted = challenge?.accepts?.[0];
+  const validRecipient = /^0x[a-fA-F0-9]{40}$/.test(accepted?.payTo || '');
+  if (accepted?.network !== 'eip155:1439' || accepted?.asset?.toLowerCase() !== INJECTIVE_TESTNET_USDC || accepted?.amount !== '10000' || !validRecipient) {
+    throw new Error('The payment quote does not match GoalGate testnet policy.');
+  }
+
+  const from = await connectInjectiveWallet();
+  const now = Math.floor(Date.now() / 1000);
+  const nonceBytes = crypto.getRandomValues(new Uint8Array(32));
+  const authorization = {
+    from,
+    to: accepted.payTo,
+    value: accepted.amount,
+    validAfter: String(now - 30),
+    validBefore: String(now + Math.min(accepted.maxTimeoutSeconds || 90, 300)),
+    nonce: `0x${Array.from(nonceBytes, (byte) => byte.toString(16).padStart(2, '0')).join('')}`
+  };
+  const typedData = {
+    domain: { name: accepted.extra?.name || 'USDC', version: accepted.extra?.version || '2', chainId: 1439, verifyingContract: accepted.asset },
+    primaryType: 'TransferWithAuthorization',
+    types: {
+      EIP712Domain: [
+        { name: 'name', type: 'string' },
+        { name: 'version', type: 'string' },
+        { name: 'chainId', type: 'uint256' },
+        { name: 'verifyingContract', type: 'address' }
+      ],
+      TransferWithAuthorization: [
+        { name: 'from', type: 'address' },
+        { name: 'to', type: 'address' },
+        { name: 'value', type: 'uint256' },
+        { name: 'validAfter', type: 'uint256' },
+        { name: 'validBefore', type: 'uint256' },
+        { name: 'nonce', type: 'bytes32' }
+      ]
+    },
+    message: authorization
+  };
+  const signature = await window.ethereum.request({ method: 'eth_signTypedData_v4', params: [from, JSON.stringify(typedData)] });
+  return encodeBase64Json({
+    x402Version: 2,
+    resource: challenge.resource,
+    accepted,
+    payload: { signature, authorization }
+  });
+}
 
 function renderActiveMatch(match) {
   selectedMatch = match;
@@ -98,7 +175,7 @@ insightForm?.addEventListener('submit', async (event) => {
     if (response.status !== 402) throw new Error(body.error || 'Expected an x402 price challenge.');
     pendingRequest = body;
     document.querySelector('[data-payment-price]').textContent = body.accepts?.[0]?.amount === '10000' ? '0.01 USDC' : 'USDC payment';
-    paymentNote.textContent = 'Development uses an explicit demo signature. Production requires wallet signing and facilitator settlement.';
+    paymentNote.textContent = 'Your wallet signs an exact 0.01 USDC authorization. The facilitator pays gas and settles on Injective testnet.';
     paymentPanel.hidden = false;
     paymentPanel.scrollIntoView({ behavior: 'smooth', block: 'center' });
   } catch (error) { notify(error.message, 'error'); }
@@ -107,13 +184,18 @@ insightForm?.addEventListener('submit', async (event) => {
 
 approveButton?.addEventListener('click', async () => {
   if (!pendingRequest) return;
-  approveButton.disabled = true; approveButton.textContent = 'VERIFYING...';
+  approveButton.disabled = true; approveButton.textContent = 'CONNECTING...';
   try {
-    const response = await requestInsight('demo');
+    const localDemo = ['localhost', '127.0.0.1'].includes(window.location.hostname) && !window.ethereum;
+    const paymentSignature = localDemo ? 'demo' : await createPaymentSignature(pendingRequest);
+    approveButton.textContent = 'SETTLING...';
+    const response = await requestInsight(paymentSignature);
     const body = await response.json();
     if (!response.ok) throw new Error(body.error || 'Payment could not be verified. Configure a facilitator for production.');
     const { data, payment } = body;
-    insightOutput.innerHTML = `<header><span>EDGE ${Math.round(data.edge * 100)}%</span><b>${data.signal}</b></header><p>${data.summary}</p><footer><span>Confidence ${Math.round(data.confidence * 100)}%</span><span>${payment.amount}</span><span>${payment.demo ? 'Development receipt' : 'Injective confirmed'}</span></footer>`;
+    const explorerUrl = typeof payment.explorerUrl === 'string' && payment.explorerUrl.startsWith('https://testnet.blockscout.injective.network/tx/') ? payment.explorerUrl : null;
+    const receipt = explorerUrl ? `<a href="${escapeHtml(explorerUrl)}" target="_blank" rel="noreferrer">View transaction</a>` : '<span>Development receipt</span>';
+    insightOutput.innerHTML = `<header><span>EDGE ${Math.round(data.edge * 100)}%</span><b>${escapeHtml(data.signal)}</b></header><p>${escapeHtml(data.summary)}</p><footer><span>Confidence ${Math.round(data.confidence * 100)}%</span><span>${escapeHtml(payment.amount)}</span>${receipt}</footer>`;
     insightOutput.hidden = false;
     paymentPanel.hidden = true;
     insightOutput.scrollIntoView({ behavior: 'smooth', block: 'center' });

@@ -23,6 +23,7 @@ test('premium insight returns an x402 challenge', async () => {
   assert.ok(response.headers.get('payment-required'));
   assert.equal(body.accepts[0].network, 'eip155:1439');
   assert.equal(body.accepts[0].asset, '0x0C382e685bbeeFE5d3d9C29e29E341fEE8E84C5d');
+  assert.equal(body.accepts[0].extra.name, 'USDC');
   assert.equal(body.accepts[0].extra.assetTransferMethod, 'eip3009');
 });
 test('development payment unlocks an insight and returns a receipt', async () => {
