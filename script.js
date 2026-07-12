@@ -91,6 +91,21 @@ async function connectInjectiveWallet() {
   return account;
 }
 
+async function getUsdcBalance(account, asset) {
+  const accountWord = account.toLowerCase().replace(/^0x/, '').padStart(64, '0');
+  const result = await window.ethereum.request({
+    method: 'eth_call',
+    params: [{ to: asset, data: `0x70a08231${accountWord}` }, 'latest']
+  });
+  return BigInt(result || '0x0');
+}
+
+function formatUsdc(value) {
+  const whole = value / 1_000_000n;
+  const fraction = (value % 1_000_000n).toString().padStart(6, '0').replace(/0+$/, '');
+  return fraction ? `${whole}.${fraction}` : whole.toString();
+}
+
 async function createPaymentSignature(challenge) {
   const accepted = challenge?.accepts?.[0];
   const validRecipient = /^0x[a-fA-F0-9]{40}$/.test(accepted?.payTo || '');
@@ -99,6 +114,12 @@ async function createPaymentSignature(challenge) {
   }
 
   const from = await connectInjectiveWallet();
+  const balance = await getUsdcBalance(from, accepted.asset);
+  const walletStatus = document.querySelector('[data-wallet-status]');
+  if (walletStatus) walletStatus.textContent = `${from.slice(0, 6)}...${from.slice(-4)} · ${formatUsdc(balance)} USDC`;
+  if (balance < BigInt(accepted.amount)) {
+    throw new Error(`Selected wallet has ${formatUsdc(balance)} official testnet USDC. GoalGate needs 0.01 USDC on Injective EVM Testnet.`);
+  }
   const now = Math.floor(Date.now() / 1000);
   const nonceBytes = crypto.getRandomValues(new Uint8Array(32));
   const authorization = {
