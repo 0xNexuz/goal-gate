@@ -51,6 +51,7 @@ const questionPreset = document.querySelector('[data-question-preset]');
 const questionInput = document.querySelector('#app-query');
 let selectedMatch = null;
 let pendingRequest = null;
+let pendingPaymentSignature = null;
 const INJECTIVE_TESTNET_CHAIN_ID = '0x59f';
 const INJECTIVE_TESTNET_USDC = '0x0c382e685bbeefe5d3d9c29e29e341fee8e84c5d';
 
@@ -166,6 +167,7 @@ function renderActiveMatch(match) {
   matchList.querySelectorAll('button').forEach((button) => button.classList.toggle('selected', button.dataset.matchId === match.id));
   paymentPanel.hidden = true;
   insightOutput.hidden = true;
+  pendingPaymentSignature = null;
 }
 
 async function loadWorkspace() {
@@ -208,6 +210,7 @@ insightForm?.addEventListener('submit', async (event) => {
     const body = await response.json();
     if (response.status !== 402) throw new Error(body.error || 'Expected an x402 price challenge.');
     pendingRequest = body;
+    pendingPaymentSignature = null;
     document.querySelector('[data-payment-price]').textContent = body.accepts?.[0]?.amount === '10000' ? '0.01 USDC' : 'USDC payment';
     paymentNote.textContent = 'Your wallet signs an exact 0.01 USDC authorization. The facilitator pays gas and settles on Injective testnet.';
     paymentPanel.hidden = false;
@@ -221,7 +224,8 @@ approveButton?.addEventListener('click', async () => {
   approveButton.disabled = true; approveButton.textContent = 'CONNECTING...';
   try {
     const localDemo = ['localhost', '127.0.0.1'].includes(window.location.hostname) && !window.ethereum;
-    const paymentSignature = localDemo ? 'demo' : await createPaymentSignature(pendingRequest);
+    const paymentSignature = localDemo ? 'demo' : pendingPaymentSignature || await createPaymentSignature(pendingRequest);
+    pendingPaymentSignature = paymentSignature;
     approveButton.textContent = 'SETTLING...';
     const response = await requestInsight(paymentSignature);
     const body = await response.json();
@@ -232,6 +236,7 @@ approveButton?.addEventListener('click', async () => {
     insightOutput.innerHTML = `<header><span>EDGE ${Math.round(data.edge * 100)}%</span><b>${escapeHtml(data.signal)}</b></header><p>${escapeHtml(data.summary)}</p><footer><span>Confidence ${Math.round(data.confidence * 100)}%</span><span>${escapeHtml(payment.amount)}</span>${receipt}</footer>`;
     insightOutput.hidden = false;
     paymentPanel.hidden = true;
+    pendingPaymentSignature = null;
     insightOutput.scrollIntoView({ behavior: 'smooth', block: 'center' });
     notify('Insight unlocked.', 'success');
   } catch (error) { notify(error.message, 'error'); paymentNote.textContent = error.message; }
