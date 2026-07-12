@@ -47,6 +47,8 @@ const paymentPanel = document.querySelector('[data-payment-panel]');
 const paymentNote = document.querySelector('[data-payment-note]');
 const insightOutput = document.querySelector('[data-insight-output]');
 const approveButton = document.querySelector('[data-approve-payment]');
+const questionPreset = document.querySelector('[data-question-preset]');
+const questionInput = document.querySelector('#app-query');
 let selectedMatch = null;
 let pendingRequest = null;
 const INJECTIVE_TESTNET_CHAIN_ID = '0x59f';
@@ -54,6 +56,16 @@ const INJECTIVE_TESTNET_USDC = '0x0c382e685bbeefe5d3d9c29e29e341fee8e84c5d';
 
 const encodeBase64Json = (value) => window.btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(value))));
 const escapeHtml = (value) => String(value).replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[character]);
+
+questionPreset?.addEventListener('change', () => {
+  if (!questionPreset.value || !questionInput) return;
+  questionInput.value = questionPreset.value;
+  questionInput.focus();
+});
+
+questionInput?.addEventListener('input', () => {
+  if (questionPreset?.value && questionInput.value !== questionPreset.value) questionPreset.value = '';
+});
 
 async function connectInjectiveWallet() {
   if (!window.ethereum) throw new Error('Install MetaMask or Rabby to authorize the USDC payment.');
